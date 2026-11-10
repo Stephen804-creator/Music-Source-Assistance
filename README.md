@@ -12,7 +12,7 @@ A music and sound discovery workspace for creative projects. Search provider cat
 - FastAPI API and Streamable HTTP MCP endpoint at `/mcp`.
 
 ## Important product truth
-AI Studio currently uses deterministic ontology rules and catalogue discovery. It is **not yet connected to a generative LLM**. Chat history and saved tracks are browser-session state only. Accounts, persistent collections, a hosted PostgreSQL repository, full download management, live autocomplete and waveform rendering are not implemented in this baseline. The PostgreSQL migration is a starting schema, not an active runtime integration.
+AI Studio currently uses deterministic ontology rules and catalogue discovery. It is **not yet connected to a generative LLM**. Chat history and saved tracks are browser-session state only. Accounts, persistent user collections, full download management, live autocomplete and waveform rendering are not implemented. When `DATABASE_URL` is configured, provider metadata is persisted in Render PostgreSQL and searchable across service restarts and instances. Local development without `DATABASE_URL` uses the SQLite fallback.
 
 Provider licence metadata is informational, can be incomplete or stale, and is not legal clearance. Always inspect the original work page and confirm permissions, attribution, commercial use and modification rights for the intended project.
 
@@ -29,6 +29,8 @@ Open `http://127.0.0.1:8000`.
 Optional audio analysis: `pip install -r requirements-audio.txt`.
 
 Optional Freesound search: set `FREESOUND_API_KEY` in the environment.
+
+Optional hosted database: set `DATABASE_URL` to a PostgreSQL connection string. The app applies the catalogue migration on startup. Without it, the app uses the local SQLite development index.
 
 ## HTTP API
 - `GET /health`
@@ -48,7 +50,7 @@ Tools:
 The `mcp[cli]` dependency is included in `requirements.txt`; Render installs it as part of the normal build.
 
 ## Deploy on Render
-The included `render.yaml` describes a Python web service:
+The included `render.yaml` is a Render Blueprint describing the Frankfurt Python web service and its PostgreSQL database. The web service receives the database's internal connection string through `DATABASE_URL`. On startup it applies `migrations/001_music_catalogue.sql`; startup fails rather than silently switching to ephemeral SQLite if the configured database is unavailable. Health reports the active database backend.
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Health: `/health`

@@ -115,8 +115,8 @@ async def search_all(query: str, limit: int = 8, providers: list[str] | None = N
         else:
             tracks.extend(result)
     try:
-        from app.metadata_index import MetadataIndex
-        MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).upsert_many(tracks)
+        from app.metadata_index import get_metadata_index
+        get_metadata_index().upsert_many(tracks)
     except Exception:
         pass
     return {"query": query, "results": tracks, "provider_errors": errors, "note": "Always verify the individual track licence and intended use before publishing."}

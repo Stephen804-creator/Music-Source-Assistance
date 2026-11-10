@@ -1,0 +1,4 @@
+# Optional; installs native scientific/audio dependencies. Not required for core service.
+librosa>=0.10.2,<1.0
+numpy>=1.26,<3.0
+soundfile>=0.12,<1.0

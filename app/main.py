@@ -156,7 +156,7 @@ security = TransportSecuritySettings(enable_dns_rebinding_protection=True, allow
 # FastMCP in the supported MCP SDK exposes the default /mcp route. Mount the
 # sub-application at the ASGI root so that its endpoint remains /mcp externally.
 # Keep this catch-all mount last so the FastAPI routes above retain precedence.
-mcp_app = mcp.streamable_http_app(host="0.0.0.0", transport_security=security)
+mcp_app = mcp.streamable_http_app()
 app.mount("/", mcp_app)
 
 

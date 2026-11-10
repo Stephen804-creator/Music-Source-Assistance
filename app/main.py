@@ -14,7 +14,17 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.providers import discover_for_brief, search_all
 
-mcp = FastMCP("Music Source Assistant", stateless_http=True)
+allowed_hosts = [item.strip() for item in os.getenv("MCP_ALLOWED_HOSTS", "localhost:*,127.0.0.1:*,[::1]:*").split(",") if item.strip()]
+security = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=allowed_hosts)
+
+# MCP SDK 1.x configures transport security on FastMCP itself; its
+# streamable_http_app() factory takes no keyword arguments in this version.
+mcp = FastMCP(
+    "Music Source Assistant",
+    stateless_http=True,
+    host="0.0.0.0",
+    transport_security=security,
+)
 
 
 @mcp.tool()
@@ -151,12 +161,10 @@ async def api_analyze_audio(request: Request):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-allowed_hosts = [item.strip() for item in os.getenv("MCP_ALLOWED_HOSTS", "localhost:*,127.0.0.1:*,[::1]:*").split(",") if item.strip()]
-security = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=allowed_hosts)
-# FastMCP in the supported MCP SDK exposes the default /mcp route. Mount the
-# sub-application at the ASGI root so that its endpoint remains /mcp externally.
-# Keep this catch-all mount last so the FastAPI routes above retain precedence.
-mcp_app = mcp.streamable_http_app(transport_security=security)
+# FastMCP 1.x reads streamable-HTTP settings from its constructor. The
+# sub-application exposes the default /mcp route and is mounted last so the
+# FastAPI routes above retain precedence.
+mcp_app = mcp.streamable_http_app()
 app.mount("/", mcp_app)
 
 

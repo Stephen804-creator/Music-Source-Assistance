@@ -139,8 +139,11 @@ async def api_analyze_audio(request: Request):
 
 allowed_hosts = [item.strip() for item in os.getenv("MCP_ALLOWED_HOSTS", "localhost:*,127.0.0.1:*,[::1]:*").split(",") if item.strip()]
 security = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=allowed_hosts)
-mcp_app = mcp.streamable_http_app(streamable_http_path="/", host="0.0.0.0", transport_security=security)
-app.mount("/mcp", mcp_app)
+# FastMCP in the supported MCP SDK exposes the default /mcp route. Mount the
+# sub-application at the ASGI root so that its endpoint remains /mcp externally.
+# Keep this catch-all mount last so the FastAPI routes above retain precedence.
+mcp_app = mcp.streamable_http_app(host="0.0.0.0", transport_security=security)
+app.mount("/", mcp_app)
 
 
 if __name__ == "__main__":

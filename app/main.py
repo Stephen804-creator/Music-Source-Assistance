@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from app.metadata_index import MetadataIndex
+from app.metadata_index import get_metadata_index, PostgresMetadataIndex
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -70,6 +70,11 @@ async def explain_music_licence(provider: str, licence: str) -> dict[str, str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    index = get_metadata_index()
+    if isinstance(index, PostgresMetadataIndex):
+        index.initialize()
+        index.ping()
+    app.state.metadata_index = index
     async with mcp.session_manager.run():
         yield
 
@@ -99,8 +104,17 @@ async def api_discover(brief: str = Query(min_length=1, max_length=1200), limit:
 
 
 @app.get("/health")
-async def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "music-source-assistant", "features": ["direct-search", "project-discovery", "metadata-index", "explainable-ranking", "optional-audio-analysis", "mcp-streamable-http"]}
+async def health(request: Request) -> dict[str, Any]:
+    index = getattr(request.app.state, "metadata_index", None)
+    database = "postgresql" if isinstance(index, PostgresMetadataIndex) else "sqlite-local"
+    if isinstance(index, PostgresMetadataIndex):
+        try:
+            index.ping()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="PostgreSQL database unavailable") from exc
+    return {"status": "ok", "service": "music-source-assistant", "database": database,
+            "features": ["direct-search", "project-discovery", "persistent-metadata-catalogue",
+                         "explainable-ranking", "optional-audio-analysis", "mcp-streamable-http"]}
 
 
 @app.get("/api/search")
@@ -115,7 +129,7 @@ async def api_search(q: str = Query(min_length=1, max_length=240), limit: int = 
 @app.get("/api/index/search")
 async def api_index_search(q: str = Query(min_length=1, max_length=240), limit: int = Query(default=20, ge=1, le=100)):
     try:
-        return {"query": q, "results": MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).search(q, limit)}
+        return {"query": q, "results": get_metadata_index().search(q, limit)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Metadata index search failed") from exc
 

@@ -1,0 +1,60 @@
+{
+  "version": "1.0.0",
+  "concepts": {
+    "moods": {
+      "uplifting": ["positive", "hopeful", "inspiring", "motivational", "triumphant", "feel good"],
+      "sad": ["melancholic", "sorrowful", "grief", "heartbreaking", "somber"],
+      "emotional": ["moving", "touching", "sentimental", "evocative", "heartfelt"],
+      "calm": ["peaceful", "serene", "gentle", "soft", "tranquil"],
+      "tense": ["suspenseful", "anxious", "uneasy", "thriller", "ominous"],
+      "dramatic": ["epic", "intense", "powerful", "cinematic", "grand"],
+      "mysterious": ["intriguing", "enigmatic", "dark atmosphere", "eerie"],
+      "happy": ["joyful", "cheerful", "playful", "fun", "bright"],
+      "romantic": ["love", "intimate", "tender", "passionate"],
+      "nostalgic": ["memories", "retro", "wistful", "reflective"]
+    },
+    "genres": {
+      "african": ["afrobeats", "afropop", "highlife", "afro-fusion", "juju", "makossa", "amapiano", "mbalax", "southern african"],
+      "cinematic": ["film score", "soundtrack", "orchestral score", "trailer music"],
+      "ambient": ["atmospheric", "drone", "soundscape", "texture"],
+      "electronic": ["synthwave", "house", "techno", "edm", "downtempo"],
+      "hip hop": ["rap", "boom bap", "trap", "instrumental hip hop"],
+      "classical": ["baroque", "romantic classical", "chamber", "contemporary classical"],
+      "folk": ["traditional", "acoustic folk", "roots", "world folk"],
+      "jazz": ["smooth jazz", "bebop", "swing", "jazz fusion"],
+      "rock": ["indie rock", "alternative", "hard rock", "post rock"],
+      "lofi": ["lo-fi", "chillhop", "study beats", "downtempo beats"]
+    },
+    "instruments": {
+      "piano": ["keys", "keyboard", "grand piano", "felt piano", "electric piano"],
+      "strings": ["violin", "viola", "cello", "string section", "orchestral strings"],
+      "guitar": ["acoustic guitar", "electric guitar", "nylon guitar", "fingerstyle"],
+      "percussion": ["drums", "hand drums", "shakers", "congas", "talking drum", "udu"],
+      "african instruments": ["kora", "kalimba", "mbira", "balafon", "djembe", "shekere", "ogene"],
+      "woodwinds": ["flute", "clarinet", "oboe", "saxophone", "recorder"],
+      "synthesizer": ["synth", "pads", "analog synth", "modular synth"]
+    },
+    "sound_types": {
+      "nature ambience": ["rain", "thunder", "wind", "birds", "ocean", "waves", "forest", "river", "waterfall"],
+      "city ambience": ["traffic", "street", "crowd", "market", "train station", "city noise"],
+      "foley": ["footsteps", "door", "cloth", "object handling", "movement"],
+      "transitions": ["whoosh", "swoosh", "riser", "impact", "stinger", "sweep"]
+    },
+    "production": {
+      "instrumental": ["no vocals", "without vocals", "no singing", "instrumental only"],
+      "vocals": ["with vocals", "singing", "vocal performance", "lyrics"],
+      "loopable": ["seamless loop", "loop", "repeatable background"],
+      "minimal": ["sparse", "understated", "subtle", "minimalist"]
+    }
+  },
+  "use_cases": {
+    "documentary": ["documentary", "nonfiction film", "factual film", "human story"],
+    "youtube": ["youtube", "monetised video", "monetized video", "creator video", "vlog"],
+    "podcast": ["podcast", "spoken word", "audio show", "intro", "outro"],
+    "film": ["film", "short film", "movie", "scene", "cinematic sequence"],
+    "game": ["game", "gameplay", "video game", "interactive experience"],
+    "advertising": ["advert", "advertisement", "commercial", "brand film", "client work"],
+    "education": ["education", "lesson", "tutorial", "explainer", "course", "classroom"],
+    "presentation": ["presentation", "slideshow", "pitch deck", "corporate presentation"]
+  }
+}

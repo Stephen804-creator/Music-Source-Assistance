@@ -1,15 +1,15 @@
-"""Small local SQLite metadata index with FTS5 when available.
-
-The index stores provider metadata only, not copyrighted audio files. It is a
-local/dev fallback; PostgreSQL schema for hosted multi-user deployment is in
-migrations/001_music_catalogue.sql.
-"""
 from __future__ import annotations
-import json, sqlite3
+
+import json
+import os
+import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
 
 class MetadataIndex:
+    """SQLite index for local development when DATABASE_URL is not configured."""
     def __init__(self, path: str | Path = "data/music_index.sqlite3"):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -36,14 +36,14 @@ class MetadataIndex:
     def upsert_many(self, tracks: list[dict[str, Any]]) -> int:
         count = 0
         with self._connect() as db:
-            for t in tracks:
-                provider, pid = str(t.get("provider") or ""), str(t.get("id") or "")
+            for track in tracks:
+                provider, pid = str(track.get("provider") or ""), str(track.get("id") or "")
                 if not provider or not pid:
                     continue
-                values = (provider, pid, str(t.get("title") or "Untitled"), str(t.get("creator") or ""),
-                          str(t.get("description") or ""), " ".join(map(str, t.get("tags") or [])),
-                          t.get("duration"), str(t.get("license") or ""), t.get("source_url"),
-                          json.dumps(t, ensure_ascii=False))
+                values = (provider, pid, str(track.get("title") or "Untitled"), str(track.get("creator") or ""),
+                          str(track.get("description") or ""), " ".join(map(str, track.get("tags") or [])),
+                          track.get("duration"), str(track.get("license") or ""), track.get("source_url"),
+                          json.dumps(track, ensure_ascii=False))
                 db.execute("""INSERT INTO tracks(provider,provider_id,title,creator,description,tags,duration,license,source_url,payload,updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider,provider_id) DO UPDATE SET
                     title=excluded.title,creator=excluded.creator,description=excluded.description,tags=excluded.tags,
@@ -64,3 +64,80 @@ class MetadataIndex:
                 like = f"%{query}%"
                 rows = db.execute("SELECT payload FROM tracks WHERE title LIKE ? OR creator LIKE ? OR description LIKE ? OR tags LIKE ? LIMIT ?", (like, like, like, like, limit)).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+
+class PostgresMetadataIndex:
+    """Persistent hosted catalogue using Render PostgreSQL."""
+    def __init__(self, database_url: str):
+        parsed = urlparse(database_url)
+        if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
+            raise ValueError("DATABASE_URL must be a PostgreSQL connection URL")
+        self.database_url = database_url
+
+    def _connect(self):
+        import psycopg
+        return psycopg.connect(self.database_url, connect_timeout=8)
+
+    def initialize(self):
+        migration = Path(__file__).resolve().parent.parent / "migrations" / "001_music_catalogue.sql"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(migration.read_text(encoding="utf-8"))
+
+    def ping(self) -> bool:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                return cur.fetchone()[0] == 1
+
+    def upsert_many(self, tracks: list[dict[str, Any]]) -> int:
+        from psycopg.types.json import Jsonb
+        rows = []
+        for track in tracks:
+            provider, pid = str(track.get("provider") or ""), str(track.get("id") or "")
+            if not provider or not pid:
+                continue
+            tags = track.get("tags") or []
+            if isinstance(tags, str):
+                tags = [tags]
+            rows.append((provider, pid, str(track.get("title") or "Untitled"),
+                str(track.get("creator") or ""), str(track.get("description") or ""),
+                [str(tag) for tag in tags], track.get("duration"), track.get("bpm"),
+                track.get("key"), track.get("energy"), str(track.get("license") or ""),
+                track.get("license_url"), track.get("source_url"), track.get("preview_url"), Jsonb(track)))
+        if not rows:
+            return 0
+        sql = """INSERT INTO catalogue_tracks
+            (provider,provider_track_id,title,creator,description,tags,duration_seconds,bpm,musical_key,energy,
+             licence_code,licence_url,source_url,preview_url,raw_metadata)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(provider,provider_track_id) DO UPDATE SET
+             title=EXCLUDED.title,creator=EXCLUDED.creator,description=EXCLUDED.description,tags=EXCLUDED.tags,
+             duration_seconds=EXCLUDED.duration_seconds,bpm=EXCLUDED.bpm,musical_key=EXCLUDED.musical_key,
+             energy=EXCLUDED.energy,licence_code=EXCLUDED.licence_code,licence_url=EXCLUDED.licence_url,
+             source_url=EXCLUDED.source_url,preview_url=EXCLUDED.preview_url,raw_metadata=EXCLUDED.raw_metadata,
+             indexed_at=NOW()"""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(sql, rows)
+        return len(rows)
+
+    def search(self, query: str, limit: int = 30) -> list[dict[str, Any]]:
+        sql = """SELECT raw_metadata FROM catalogue_tracks
+            WHERE to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(creator,'') || ' ' ||
+                  coalesce(description,'') || ' ' || array_to_string(tags,' '))
+                  @@ plainto_tsquery('simple', %s)
+               OR title ILIKE %s OR creator ILIKE %s OR description ILIKE %s
+               OR array_to_string(tags,' ') ILIKE %s
+            ORDER BY indexed_at DESC LIMIT %s"""
+        pattern = f"%{query}%"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (query, pattern, pattern, pattern, pattern, limit))
+                return [row[0] for row in cur.fetchall()]
+
+
+def get_metadata_index():
+    database_url = os.getenv("DATABASE_URL")
+    return PostgresMetadataIndex(database_url) if database_url else MetadataIndex(
+        os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3"))

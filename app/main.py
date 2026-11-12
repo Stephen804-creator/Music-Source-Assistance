@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.metadata_index import MetadataIndex
@@ -25,9 +26,7 @@ async def search_music(query: str, limit: int = 8, providers: list[str] | None =
         raise ValueError("query must contain 1 to 240 characters")
     if limit < 1 or limit > 20:
         raise ValueError("limit must be between 1 and 20")
-    if providers and any(p not in {"freetouse", "openverse", "freesound"} for p in providers):
-        raise ValueError("Unsupported provider")
-    return await search_all(query, limit, providers)
+    return await search_all(query, limit, providers)  # validates providers
 
 
 @mcp.tool()
@@ -37,9 +36,7 @@ async def discover_music_for_project(brief: str, limit: int = 8, providers: list
         raise ValueError("brief must contain 1 to 2000 characters")
     if limit < 1 or limit > 20:
         raise ValueError("limit must be between 1 and 20")
-    if providers and any(p not in {"freetouse", "openverse", "freesound"} for p in providers):
-        raise ValueError("Unsupported provider")
-    return await discover_for_brief(brief, limit, providers)
+    return await discover_for_brief(brief, limit, providers)  # validates providers
 
 
 @mcp.tool()
@@ -87,11 +84,14 @@ async def home():
 app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 
 
+def _parse_providers(providers: str | None) -> list[str] | None:
+    return [p.strip().lower() for p in providers.split(",") if p.strip()] if providers else None
+
+
 @app.get("/api/discover")
 async def api_discover(brief: str = Query(min_length=1, max_length=1200), limit: int = Query(default=8, ge=1, le=20), providers: str | None = None) -> dict[str, Any]:
-    selected = [p.strip().lower() for p in providers.split(",") if p.strip()] if providers else None
     try:
-        return await discover_for_brief(brief, limit, selected)
+        return await discover_for_brief(brief, limit, _parse_providers(providers))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -105,17 +105,22 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/search")
 async def api_search(q: str = Query(min_length=1, max_length=240), limit: int = Query(default=8, ge=1, le=20), providers: str | None = None) -> dict[str, Any]:
-    selected = [p.strip().lower() for p in providers.split(",") if p.strip()] if providers else None
     try:
-        return await search_all(q.strip(), limit, selected)
+        return await search_all(q.strip(), limit, _parse_providers(providers))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Music provider request failed") from exc
+
+
+def _search_index(q: str, limit: int) -> list[dict[str, Any]]:
+    return MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).search(q, limit)
 
 
 @app.get("/api/index/search")
 async def api_index_search(q: str = Query(min_length=1, max_length=240), limit: int = Query(default=20, ge=1, le=100)):
     try:
-        return {"query": q, "results": MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).search(q, limit)}
+        return {"query": q, "results": await run_in_threadpool(_search_index, q, limit)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Metadata index search failed") from exc
 

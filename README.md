@@ -30,12 +30,16 @@ Optional audio analysis: `pip install -r requirements-audio.txt`.
 
 Optional Freesound search: set `FREESOUND_API_KEY` in the environment.
 
+The local metadata index is a SQLite file (default `data/music_index.sqlite3`, ignored by git). Override the location with `MUSIC_INDEX_PATH`. On Render's free plan the disk is ephemeral, so the index is rebuilt from searches after each restart.
+
 ## HTTP API
 - `GET /health`
 - `GET /api/search?q=cinematic%20piano&limit=8`
 - `GET /api/discover?brief=hopeful%20African%20documentary%20piano&limit=8`
 - `GET /api/index/search?q=piano&limit=20`
 - `POST /api/analyze-audio` with raw audio bytes and an `audio/*` content type (max 20 MB).
+
+The optional `providers` query parameter takes a comma-separated list of `freetouse`, `openverse` and `freesound`. Unknown names return `422`. `limit` is the maximum number of results returned.
 
 ## MCP
 Streamable HTTP endpoint: `https://YOUR-HOST/mcp`
@@ -49,11 +53,17 @@ The `mcp[cli]` dependency is included in `requirements.txt`; Render installs it 
 
 ## Deploy on Render
 The included `render.yaml` describes a Python web service:
+- Branch: `main`
+- Python: 3.12 (`PYTHON_VERSION`)
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Health: `/health`
 
+If the service was created before `render.yaml` was added, also check in the Render dashboard that it deploys from `main`.
+
 ## Tests
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```
+GitHub Actions runs the same checks on every push to `main` and on pull requests.

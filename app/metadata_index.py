@@ -5,9 +5,16 @@ local/dev fallback; PostgreSQL schema for hosted multi-user deployment is in
 migrations/001_music_catalogue.sql.
 """
 from __future__ import annotations
-import json, sqlite3
+import json, re, sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+
+def _fts_query(query: str) -> str:
+    """Turn free text into a safe FTS5 query: every word quoted, implicitly AND-ed."""
+    return " ".join(f'"{token}"' for token in re.findall(r"\w+", query, flags=re.UNICODE))
+
 
 class MetadataIndex:
     def __init__(self, path: str | Path = "data/music_index.sqlite3"):
@@ -15,13 +22,18 @@ class MetadataIndex:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def _connect(self):
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:  # commit on success, roll back on error
+                yield conn
+        finally:
+            conn.close()
 
     def _init(self):
-        with self._connect() as db:
+        with self._session() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS tracks (
                 provider TEXT NOT NULL, provider_id TEXT NOT NULL, title TEXT NOT NULL,
                 creator TEXT, description TEXT, tags TEXT, duration REAL, license TEXT,
@@ -35,7 +47,7 @@ class MetadataIndex:
 
     def upsert_many(self, tracks: list[dict[str, Any]]) -> int:
         count = 0
-        with self._connect() as db:
+        with self._session() as db:
             for t in tracks:
                 provider, pid = str(t.get("provider") or ""), str(t.get("id") or "")
                 if not provider or not pid:
@@ -57,9 +69,12 @@ class MetadataIndex:
         return count
 
     def search(self, query: str, limit: int = 30) -> list[dict[str, Any]]:
-        with self._connect() as db:
+        fts = _fts_query(query)
+        if not fts:
+            return []
+        with self._session() as db:
             try:
-                rows = db.execute("SELECT t.payload FROM tracks_fts f JOIN tracks t USING(provider,provider_id) WHERE tracks_fts MATCH ? LIMIT ?", (query, limit)).fetchall()
+                rows = db.execute("SELECT t.payload FROM tracks_fts f JOIN tracks t USING(provider,provider_id) WHERE tracks_fts MATCH ? LIMIT ?", (fts, limit)).fetchall()
             except sqlite3.OperationalError:
                 like = f"%{query}%"
                 rows = db.execute("SELECT payload FROM tracks WHERE title LIKE ? OR creator LIKE ? OR description LIKE ? OR tags LIKE ? LIMIT ?", (like, like, like, like, limit)).fetchall()

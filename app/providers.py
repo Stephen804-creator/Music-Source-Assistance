@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from typing import Any
 from urllib.parse import urlparse
 import httpx
 
+logger = logging.getLogger(__name__)
+
 FREETOUSE_API = "https://api.freetouse.com/v3"
 OPENVERSE_API = "https://api.openverse.org/v1/audio/"
 FREESOUND_API = "https://freesound.org/apiv2/search/text/"
 TIMEOUT = httpx.Timeout(12.0, connect=5.0)
+SUPPORTED_PROVIDERS = ("freetouse", "openverse", "freesound")
+
+
+def validate_providers(providers: list[str] | None) -> list[str] | None:
+    """Normalise a provider selection; raise ValueError on unknown names. None/empty means all."""
+    if not providers:
+        return None
+    cleaned = [p.strip().lower() for p in providers if p and p.strip()]
+    unknown = sorted(set(cleaned) - set(SUPPORTED_PROVIDERS))
+    if unknown:
+        raise ValueError(f"Unsupported provider: {', '.join(unknown)}")
+    return cleaned or None
 
 
 def _first(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
@@ -100,9 +116,13 @@ async def search_freesound(query: str, limit: int) -> list[dict[str, Any]]:
     return [normalize_freesound(row) for row in rows if isinstance(row, dict)][:limit] if isinstance(rows, list) else []
 
 
+def _index_tracks(tracks: list[dict[str, Any]]) -> None:
+    from app.metadata_index import MetadataIndex
+    MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).upsert_many(tracks)
+
+
 async def search_all(query: str, limit: int = 8, providers: list[str] | None = None) -> dict[str, Any]:
-    import asyncio
-    selected = providers or ["freetouse", "openverse", "freesound"]
+    selected = validate_providers(providers) or list(SUPPORTED_PROVIDERS)
     allowed = {"freetouse": search_freetouse, "openverse": search_openverse, "freesound": search_freesound}
     tasks = {name: fn(query, limit) for name, fn in allowed.items() if name in selected}
     names = list(tasks)
@@ -111,22 +131,23 @@ async def search_all(query: str, limit: int = 8, providers: list[str] | None = N
     errors: dict[str, str] = {}
     for name, result in zip(names, results):
         if isinstance(result, Exception):
+            logger.warning("Provider %s failed: %r", name, result)
             errors[name] = type(result).__name__
         else:
             tracks.extend(result)
-    try:
-        from app.metadata_index import MetadataIndex
-        MetadataIndex(os.getenv("MUSIC_INDEX_PATH", "data/music_index.sqlite3")).upsert_many(tracks)
-    except Exception:
-        pass
+    if tracks:
+        try:
+            await asyncio.to_thread(_index_tracks, tracks)
+        except Exception:
+            logger.warning("Metadata index update failed", exc_info=True)
     return {"query": query, "results": tracks, "provider_errors": errors, "note": "Always verify the individual track licence and intended use before publishing."}
 
 
 async def discover_for_brief(brief: str, limit: int = 8, providers: list[str] | None = None) -> dict[str, Any]:
     from app.query_understanding import understand_brief
     from app.ranking import rank_tracks
+    providers = validate_providers(providers)
     interpretation = understand_brief(brief)
-    import asyncio
     queries = interpretation["search_queries"]
     batches = await asyncio.gather(*(search_all(q[:240], limit, providers) for q in queries), return_exceptions=True)
     combined: list[dict[str, Any]] = []
@@ -134,6 +155,7 @@ async def discover_for_brief(brief: str, limit: int = 8, providers: list[str] | 
     seen: set[tuple[str, str]] = set()
     for batch in batches:
         if isinstance(batch, Exception):
+            logger.warning("Discovery query failed: %r", batch)
             errors["discovery"] = type(batch).__name__
             continue
         errors.update(batch.get("provider_errors", {}))
@@ -145,7 +167,7 @@ async def discover_for_brief(brief: str, limit: int = 8, providers: list[str] | 
     ranked = rank_tracks(combined, interpretation)
     return {
         "interpretation": interpretation, "queries_used": queries,
-        "results": ranked[:limit * max(1, len(providers or ["freetouse", "openverse", "freesound"]))],
+        "results": ranked[:limit],
         "provider_errors": errors, "ranking_method": "explainable_weighted_metadata_v1",
         "licence_notice": "A relevance match is not licence clearance. Verify the individual source page and current terms for the exact project and use.",
     }
